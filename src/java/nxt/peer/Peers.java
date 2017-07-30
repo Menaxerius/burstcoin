@@ -69,6 +69,10 @@ public final class Peers {
     static final int readTimeout;
     static final int blacklistingPeriod;
     static final boolean getMorePeers;
+    static final int MAX_REQUEST_SIZE = 1024 * 1024;
+    static final int MAX_RESPONSE_SIZE = 1024 * 1024;
+    static final boolean useWebSockets;
+    static final int webSocketIdleTimeout;
 
     static final int DEFAULT_PEER_PORT = 8123;
     static final int TESTNET_PEER_PORT = 7123;
@@ -85,6 +89,8 @@ public final class Peers {
     private static final boolean usePeersDb;
     private static final boolean savePeers;
     private static final String dumpPeersVersion;
+    static final boolean cjdnsOnly;
+
 
 
     static final JSONStreamAware myPeerInfoRequest;
@@ -205,6 +211,8 @@ public final class Peers {
         pushThreshold = Nxt.getIntProperty("nxt.pushThreshold");
         pullThreshold = Nxt.getIntProperty("nxt.pullThreshold");
 
+        useWebSockets = Nxt.getBooleanProperty("nxt.useWebSockets");
+        webSocketIdleTimeout = Nxt.getIntProperty("nxt.webSocketIdleTimeout");
         blacklistingPeriod = Nxt.getIntProperty("nxt.blacklistingPeriod");
         communicationLoggingMask = Nxt.getIntProperty("nxt.communicationLoggingMask");
         sendToPeersLimit = Nxt.getIntProperty("nxt.sendToPeersLimit");
@@ -212,6 +220,7 @@ public final class Peers {
         savePeers = usePeersDb && Nxt.getBooleanProperty("nxt.savePeers");
         getMorePeers = Nxt.getBooleanProperty("nxt.getMorePeers");
         dumpPeersVersion = Nxt.getStringProperty("nxt.dumpPeersVersion");
+        cjdnsOnly = Nxt.getBooleanProperty("nxt.cjdnsOnly");
 
         final List<Future<String>> unresolvedPeers = Collections.synchronizedList(new ArrayList<Future<String>>());
 
@@ -605,6 +614,103 @@ public final class Peers {
         }
     }
 
+
+    public static PeerImpl findOrCreatePeer(String announcedAddress, boolean create) {
+        if (announcedAddress == null) {
+            return null;
+        }
+        announcedAddress = announcedAddress.trim();
+        PeerImpl peer;
+        if ((peer = peers.get(announcedAddress)) != null) {
+            return peer;
+        }
+        String address;
+        if ((address = announcedAddresses.get(announcedAddress)) != null && (peer = peers.get(address)) != null) {
+            return peer;
+        }
+        try {
+            URI uri = new URI("http://" + announcedAddress);
+            String host = uri.getHost();
+            if (host == null) {
+                return null;
+            }
+            int port = uri.getPort();
+            if ((peer = peers.get(addressWithPort(host, port))) != null) {
+                return peer;
+            }
+            InetAddress inetAddress = InetAddress.getByName(host);
+            return findOrCreatePeer(inetAddress.getHostAddress(), port, announcedAddress, create);
+        } catch (URISyntaxException | UnknownHostException e) {
+            //Logger.logDebugMessage("Invalid peer address: " + announcedAddress + ", " + e.toString());
+            return null;
+        }
+    }
+
+    static PeerImpl findOrCreatePeer(final String address, int port, final String announcedAddress, final boolean create) {
+
+        if (Peers.cjdnsOnly && !address.substring(0,2).equals("fc")) {
+            return null;
+        }
+
+        //re-add the [] to ipv6 addresses lost in getHostAddress() above
+        String cleanAddress = address;
+        if (cleanAddress.split(":").length > 2) {
+            cleanAddress = "[" + cleanAddress + "]";
+        }
+
+        cleanAddress = addressWithPort(cleanAddress, port);
+
+        PeerImpl peer;
+        if ((peer = peers.get(cleanAddress)) != null) {
+            return peer;
+        }
+        String peerAddress = normalizeHostAndPort(cleanAddress);
+        if (peerAddress == null) {
+            return null;
+        }
+        if ((peer = peers.get(peerAddress)) != null) {
+            return peer;
+        }
+
+        if (!create) {
+            return null;
+        }
+
+        String announcedPeerAddress = address.equals(announcedAddress) ? peerAddress : normalizeHostAndPort(announcedAddress);
+
+        if (Peers.myAddress != null && Peers.myAddress.length() > 0 && Peers.myAddress.equalsIgnoreCase(announcedPeerAddress)) {
+            return null;
+        }
+
+        peer = new PeerImpl(peerAddress, announcedPeerAddress);
+        if (Constants.isTestnet && peer.getPort() > 0 && peer.getPort() != TESTNET_PEER_PORT) {
+            Logger.logDebugMessage("Peer " + peerAddress + " on testnet is not using port " + TESTNET_PEER_PORT + ", ignoring");
+            return null;
+        }
+        if (!Constants.isTestnet && peer.getPort() > 0 && peer.getPort() == TESTNET_PEER_PORT) {
+            Logger.logDebugMessage("Peer " + peerAddress + " is using testnet port " + peer.getPort() + ", ignoring");
+            return null;
+        }
+        return peer;
+    }
+
+    static String addressWithPort(String address) {
+        try {
+            URI uri = new URI("http://" + address.trim());
+            return addressWithPort(uri.getHost(), uri.getPort());
+        } catch (URISyntaxException e) {
+            return null;
+        }
+    }
+
+    static String addressWithPort(String host, int port) {
+        return port > 0 && port != Peers.getDefaultPeerPort() ? host + ":" + port : host;
+    }
+
+    public static int getDefaultPeerPort() {
+        return Constants.isTestnet ? TESTNET_PEER_PORT : DEFAULT_PEER_PORT;
+    }
+
     static PeerImpl addPeer(final String address, final String announcedAddress) {
 
         //re-add the [] to ipv6 addresses lost in getHostAddress() above
@@ -785,6 +891,14 @@ public final class Peers {
         }
 
         return peer != null ? peer : getAnyPeer(Peer.State.CONNECTED, true);
+    }
+
+    public static boolean addPeer(Peer peer) {
+        if (addPeer((PeerImpl)peer)) {
+            listeners.notify(peer, Event.NEW_PEER);
+            return true;
+        }
+        return false;
     }
 
     public static Peer getAnyPeer(Peer.State state, boolean applyPullThreshold) {
