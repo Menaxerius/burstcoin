@@ -94,7 +94,7 @@ public final class PeerServlet extends WebSocketServlet {
     @Override
     public void configure(WebSocketServletFactory factory) {
         factory.getPolicy().setIdleTimeout(Peers.webSocketIdleTimeout);
-        factory.getPolicy().setMaxTextMessageSize(Math.max(Peers.MAX_REQUEST_SIZE, Peers.MAX_RESPONSE_SIZE));
+        factory.getPolicy().setMaxBinaryMessageSize(PeerWebSocket.MAX_MESSAGE_SIZE);
         factory.setCreator(new PeerSocketCreator());
     }
 

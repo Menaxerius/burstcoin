@@ -35,6 +35,7 @@ import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.UnknownHostException;
 import java.sql.SQLException;
+import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -86,6 +87,8 @@ final class PeerImpl implements Peer {
     }
 
     void setState(State state) {
+        if (state != State.CONNECTED)
+            webSocket.close();
         if (this.state == state) {
             return;
         }
@@ -421,8 +424,11 @@ final class PeerImpl implements Peer {
                        }
                     }
         } catch (RuntimeException|IOException e) {
-            if (! (e instanceof UnknownHostException || e instanceof SocketTimeoutException || e instanceof SocketException)) {
-                Logger.logDebugMessage("Error sending JSON request", e);
+            if (state == State.CONNECTED ||
+                    !(e instanceof UnknownHostException || e instanceof SocketTimeoutException ||
+                            e instanceof SocketException || Errors.END_OF_FILE.equals(e.getMessage()))) {
+                Logger.logDebugMessage(String.format("Error sending JSON request to %s: %s",
+                        address, e.getMessage()!=null ? e.getMessage() : e.toString()));
             }
             if ((Peers.communicationLoggingMask & Peers.LOGGING_MASK_EXCEPTIONS) != 0) {
                 log += " >>> " + e.toString();
