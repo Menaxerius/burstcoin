@@ -38,6 +38,9 @@ import java.util.zip.GZIPInputStream;
 
 final class PeerImpl implements Peer {
 
+    private static final boolean useProxy = System.getProperty("socksProxyHost") != null ||
+                                            System.getProperty("http.proxyHost") != null;
+
     private final String peerAddress;
     private final PeerWebSocket webSocket;
     private volatile PeerWebSocket inboundSocket;
