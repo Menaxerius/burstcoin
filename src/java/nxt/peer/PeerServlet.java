@@ -1,6 +1,9 @@
 package nxt.peer;
 
-import nxt.util.*;
+import nxt.util.CountingInputReader;
+import nxt.util.CountingInputStream;
+import nxt.util.CountingOutputStream;
+import nxt.util.JSON;
 import org.eclipse.jetty.server.Response;
 import org.eclipse.jetty.servlets.gzip.CompressedResponseWrapper;
 import org.eclipse.jetty.websocket.servlet.ServletUpgradeRequest;
@@ -11,12 +14,14 @@ import org.eclipse.jetty.websocket.servlet.WebSocketServletFactory;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONStreamAware;
 import org.json.simple.JSONValue;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
+import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import javax.servlet.http.HttpServlet;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
@@ -30,6 +35,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 public final class PeerServlet extends WebSocketServlet {
+
+    private static final Logger logger = LoggerFactory.getLogger(PeerServlet.class);
 
     abstract static class PeerRequestHandler {
         abstract JSONStreamAware processRequest(JSONObject request, Peer peer);
@@ -160,12 +167,12 @@ public final class PeerServlet extends WebSocketServlet {
                     response = UNSUPPORTED_REQUEST_TYPE;
                 }
             } else {
-                Logger.logDebugMessage("Unsupported protocol " + request.get("protocol"));
+                logger.debug("Unsupported protocol " + request.get("protocol"));
                 response = UNSUPPORTED_PROTOCOL;
             }
 
         } catch (RuntimeException e) {
-            Logger.logDebugMessage("Error processing POST request", e);
+            logger.debug("Error processing POST request", e);
             JSONObject json = new JSONObject();
             json.put("error", e.toString());
             response = json;
@@ -235,9 +242,9 @@ public final class PeerServlet extends WebSocketServlet {
             if (peer != null) {
                 if ((Peers.communicationLoggingMask & Peers.LOGGING_MASK_EXCEPTIONS) != 0) {
                     if (e instanceof RuntimeException) {
-                        Logger.logDebugMessage("Error sending response to peer " + peer.getPeerAddress(), e);
+                        logger.debug("Error sending response to peer " + peer.getPeerAddress(), e);
                     } else {
-                        Logger.logDebugMessage(String.format("Error sending response to peer %s: %s",
+                        logger.debug(String.format("Error sending response to peer %s: %s",
                                 peer.getPeerAddress(), e.getMessage()!=null ? e.getMessage() : e.toString()));
                     }
                 }
@@ -284,11 +291,11 @@ public final class PeerServlet extends WebSocketServlet {
                     response = UNSUPPORTED_REQUEST_TYPE;
                 }
             } else {
-                Logger.logDebugMessage("Unsupported protocol " + request.get("protocol"));
+                logger.debug("Unsupported protocol " + request.get("protocol"));
                 response = UNSUPPORTED_PROTOCOL;
             }
         } catch (RuntimeException|IOException e) {
-            Logger.logDebugMessage("Error processing POST request: " + e.toString());
+            logger.debug("Error processing POST request: " + e.toString());
             peer.blacklist(e);
             JSONObject json = new JSONObject();
             json.put("error", e.toString());

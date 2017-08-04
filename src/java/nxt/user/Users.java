@@ -12,7 +12,7 @@ import nxt.peer.Peer;
 import nxt.peer.Peers;
 import nxt.util.Convert;
 import nxt.util.Listener;
-import nxt.util.Logger;
+import nxt.util.Subnet;
 import nxt.util.ThreadPool;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.HttpConnectionFactory;
@@ -33,8 +33,11 @@ import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONStreamAware;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigInteger;
+import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -46,6 +49,8 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public final class Users {
+
+    private static final Logger logger = LoggerFactory.getLogger(User.class);
 
     private static final int TESTNET_UI_PORT=6875;
 
@@ -62,7 +67,7 @@ public final class Users {
     private static final AtomicInteger transactionCounter = new AtomicInteger();
     private static final ConcurrentMap<Long, Integer> transactionIndexMap = new ConcurrentHashMap<>();
 
-    static final Set<String> allowedUserHosts;
+    static final Set<Subnet> allowedUserHosts;
 
     private static final Server userServer;
 
@@ -70,7 +75,23 @@ public final class Users {
 
         List<String> allowedUserHostsList = Nxt.getStringListProperty("nxt.allowedUserHosts");
         if (! allowedUserHostsList.contains("*")) {
-            allowedUserHosts = Collections.unmodifiableSet(new HashSet<>(allowedUserHostsList));
+
+            // Temp hashset to store allowed subnets
+            Set<Subnet> allowedSubnets = new HashSet<>();
+
+            for (String allowedHost : allowedUserHostsList)
+            {
+                try
+                {
+                    allowedSubnets.add(Subnet.createInstance(allowedHost));
+                } catch (UnknownHostException e)
+                {
+                    logger.error("Error adding allowed user host '" + allowedHost + "'", e);
+                }
+            }
+
+            allowedUserHosts = Collections.unmodifiableSet(allowedSubnets);
+
         } else {
             allowedUserHosts = null;
         }
@@ -84,7 +105,7 @@ public final class Users {
 
             boolean enableSSL = Nxt.getBooleanProperty("nxt.uiSSL");
             if (enableSSL) {
-                Logger.logMessage("Using SSL (https) for the user interface server");
+                logger.info("Using SSL (https) for the user interface server");
                 HttpConfiguration https_config = new HttpConfiguration();
                 https_config.setSecureScheme("https");
                 https_config.setSecurePort(port);
@@ -151,9 +172,9 @@ public final class Users {
                 public void run() {
                     try {
                         userServer.start();
-                        Logger.logMessage("Started user interface server at " + host + ":" + port);
+                        logger.info("Started user interface server at " + host + ":" + port);
                     } catch (Exception e) {
-                        Logger.logErrorMessage("Failed to start user interface server", e);
+                        logger.error("Failed to start user interface server", e);
                         throw new RuntimeException(e.toString(), e);
                     }
                 }
@@ -161,7 +182,7 @@ public final class Users {
 
         } else {
             userServer = null;
-            Logger.logMessage("User interface server not enabled");
+            logger.info("User interface server not enabled");
         }
 
     }
@@ -604,7 +625,7 @@ public final class Users {
             try {
                 userServer.stop();
             } catch (Exception e) {
-                Logger.logShutdownMessage("Failed to stop user interface server", e);
+                logger.info("Failed to stop user interface server", e);
             }
         }
     }

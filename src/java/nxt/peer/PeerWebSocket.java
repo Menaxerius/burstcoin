@@ -1,7 +1,7 @@
 package nxt.peer;
 
 import nxt.Nxt;
-import nxt.util.Logger;
+import org.slf4j.Logger;
 import org.eclipse.jetty.websocket.api.Session;
 import org.eclipse.jetty.websocket.api.UpgradeException;
 import org.eclipse.jetty.websocket.api.WebSocketException;
@@ -11,6 +11,7 @@ import org.eclipse.jetty.websocket.api.annotations.OnWebSocketMessage;
 import org.eclipse.jetty.websocket.api.annotations.WebSocket;
 import org.eclipse.jetty.websocket.client.ClientUpgradeRequest;
 import org.eclipse.jetty.websocket.client.WebSocketClient;
+import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -53,6 +54,8 @@ import java.util.zip.GZIPOutputStream;
  */
 @WebSocket
 public class PeerWebSocket {
+
+    private static final Logger logger = LoggerFactory.getLogger(PeerServlet.class);
 
     /** Message compression enabled */
     private static final boolean isGzipEnabled = Nxt.getBooleanProperty("nxt.enablePeerServerGZIPFilter");
@@ -161,12 +164,12 @@ public class PeerWebSocket {
                 throw (IOException)exc.getCause();
             } else {
                 // We will use HTTP
-                Logger.logDebugMessage(String.format("WebSocket connection to %s failed", address), exc);
+                logger.debug(String.format("WebSocket connection to %s failed", address), exc);
             }
         } catch (TimeoutException exc) {
             throw new SocketTimeoutException(String.format("WebSocket connection to %s timed out", address));
         } catch (Exception exc) {
-            Logger.logDebugMessage(String.format("WebSocket connection to %s failed", address), exc);
+            logger.debug(String.format("WebSocket connection to %s failed", address), exc);
         } finally {
             if (!useWebSocket)
                 close();
@@ -184,7 +187,7 @@ public class PeerWebSocket {
     public void onConnect(Session session) {
         this.session = session;
         if ((Peers.communicationLoggingMask & Peers.LOGGING_MASK_200_RESPONSES) != 0)
-            Logger.logDebugMessage(String.format("%s WebSocket connection with %s completed",
+            logger.debug(String.format("%s WebSocket connection with %s completed",
                     peerServlet != null ? "Inbound" : "Outbound",
                     session.getRemoteAddress().getHostString()));
     }
@@ -350,7 +353,7 @@ public class PeerWebSocket {
                     postRequest.complete(message);
             }
         } catch (Exception exc) {
-            Logger.logDebugMessage("Exception while processing WebSocket message", exc);
+            logger.warn("Exception while processing WebSocket message", exc);
         } finally {
             lock.unlock();
         }
@@ -368,7 +371,7 @@ public class PeerWebSocket {
         try {
             if (session != null) {
                 if ((Peers.communicationLoggingMask & Peers.LOGGING_MASK_200_RESPONSES) != 0)
-                    Logger.logDebugMessage(String.format("%s WebSocket connection with %s closed",
+                    logger.debug(String.format("%s WebSocket connection with %s closed",
                             peerServlet!=null ? "Inbound" : "Outbound",
                             session.getRemoteAddress().getHostString()));
                 session = null;
@@ -396,7 +399,7 @@ public class PeerWebSocket {
                 peerClient = null;
             }
         } catch (Exception exc) {
-            Logger.logDebugMessage("Exception while closing WebSocket", exc);
+            logger.warn("Exception while closing WebSocket", exc);
         } finally {
             lock.unlock();
         }

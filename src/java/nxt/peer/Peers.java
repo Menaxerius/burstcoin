@@ -1,10 +1,6 @@
 package nxt.peer;
 
-import nxt.Account;
-import nxt.Block;
-import nxt.Constants;
-import nxt.Nxt;
-import nxt.Transaction;
+import nxt.*;
 import nxt.db.Db;
 import nxt.util.*;
 import org.eclipse.jetty.server.Server;
@@ -18,30 +14,19 @@ import org.eclipse.jetty.servlets.GzipFilter;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONStreamAware;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.net.InetAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.*;
+import java.util.concurrent.*;
 
 public final class Peers {
+
+    private static final Logger logger = LoggerFactory.getLogger(Peers.class);
 
     public static enum Event {
         BLACKLIST, UNBLACKLIST, DEACTIVATE, REMOVE,
@@ -141,7 +126,7 @@ public final class Peers {
                     throw new RuntimeException();
                 }
             } catch (RuntimeException | URISyntaxException e) {
-                Logger.logMessage("Your hallmark is invalid: " + Peers.myHallmark + " for your address: " + myAddress);
+                logger.info("Your hallmark is invalid: " + Peers.myHallmark + " for your address: " + myAddress);
                 throw new RuntimeException(e.toString(), e);
             }
         }
@@ -166,7 +151,7 @@ public final class Peers {
                 }
                 json.put("announcedAddress", announcedAddress);
             } catch (URISyntaxException e) {
-                Logger.logMessage("Your announce address is invalid: " + myAddress);
+                logger.info("Your announce address is invalid: " + myAddress);
                 throw new RuntimeException(e.toString(), e);
             }
         }
@@ -177,7 +162,7 @@ public final class Peers {
         json.put("version", Nxt.VERSION);
         json.put("platform", Peers.myPlatform);
         json.put("shareAddress", Peers.shareMyAddress);
-        Logger.logDebugMessage("My peer info:\n" + json.toJSONString());
+        logger.debug("My peer info:\n" + json.toJSONString());
         myPeerInfoResponse = JSON.prepare(json);
         json.put("requestType", "getInfo");
         myPeerInfoRequest = JSON.prepareRequest(json);
@@ -236,7 +221,7 @@ public final class Peers {
         cjdnsOnly = Nxt.getBooleanProperty("nxt.cjdnsOnly");
         ignorePeerAnnouncedAddress = Nxt.getBooleanProperty("nxt.ignorePeerAnnouncedAddress");
         if (useWebSockets && useProxy) {
-            Logger.logMessage("Using a proxy, will not create outbound websockets.");
+            logger.debug("Using a proxy, will not create outbound websockets.");
         }
 
         final List<Future<String>> unresolvedPeers = Collections.synchronizedList(new ArrayList<Future<String>>());
@@ -262,7 +247,7 @@ public final class Peers {
                     loadPeers(wellKnownPeers);
                 }
                 if (usePeersDb) {
-                    Logger.logDebugMessage("Loading known peers from the database...");
+                    logger.debug("Loading known peers from the database...");
                     loadPeers(PeerDb.loadPeers());
                 }
             }
@@ -275,16 +260,16 @@ public final class Peers {
                     try {
                         String badAddress = unresolvedPeer.get(5, TimeUnit.SECONDS);
                         if (badAddress != null) {
-                            Logger.logDebugMessage("Failed to resolve peer address: " + badAddress);
+                            logger.debug("Failed to resolve peer address: " + badAddress);
                         }
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                     } catch (ExecutionException e) {
-                        Logger.logDebugMessage("Failed to add peer", e);
+                        logger.debug("Failed to add peer", e);
                     } catch (TimeoutException e) {
                     }
                 }
-                Logger.logDebugMessage("Known peers: " + peers.size());
+                logger.debug("Known peers: " + peers.size());
             }
         });
 
@@ -332,16 +317,16 @@ public final class Peers {
                     public void run() {
                         try {
                             peerServer.start();
-                            Logger.logMessage("Started peer networking server at " + host + ":" + port);
+                            logger.info("Started peer networking server at " + host + ":" + port);
                         } catch (Exception e) {
-                            Logger.logErrorMessage("Failed to start peer networking server", e);
+                            logger.error("Failed to start peer networking server", e);
                             throw new RuntimeException(e.toString(), e);
                         }
                     }
                 }, true);
             } else {
                 peerServer = null;
-                Logger.logMessage("shareMyAddress is disabled, will not start peer networking server");
+                logger.info("shareMyAddress is disabled, will not start peer networking server");
             }
         }
 
@@ -365,10 +350,10 @@ public final class Peers {
                     }
 
                 } catch (Exception e) {
-                    Logger.logDebugMessage("Error un-blacklisting peer", e);
+                    logger.debug("Error un-blacklisting peer", e);
                 }
             } catch (Throwable t) {
-                Logger.logMessage("CRITICAL ERROR. PLEASE REPORT TO THE DEVELOPERS.\n" + t.toString());
+                logger.info("CRITICAL ERROR. PLEASE REPORT TO THE DEVELOPERS.\n" + t.toString());
                 t.printStackTrace();
                 System.exit(1);
             }
@@ -400,10 +385,10 @@ public final class Peers {
                     }
 
                 } catch (Exception e) {
-                    Logger.logDebugMessage("Error connecting to peer", e);
+                    logger.debug("Error connecting to peer", e);
                 }
             } catch (Throwable t) {
-                Logger.logMessage("CRITICAL ERROR. PLEASE REPORT TO THE DEVELOPERS.\n" + t.toString());
+                logger.info("CRITICAL ERROR. PLEASE REPORT TO THE DEVELOPERS.\n" + t.toString());
                 t.printStackTrace();
                 System.exit(1);
             }
@@ -476,10 +461,10 @@ public final class Peers {
                     }
 
                 } catch (Exception e) {
-                    Logger.logDebugMessage("Error requesting peers from a peer", e);
+                    logger.debug("Error requesting peers from a peer", e);
                 }
             } catch (Throwable t) {
-                Logger.logMessage("CRITICAL ERROR. PLEASE REPORT TO THE DEVELOPERS.\n" + t.toString());
+                logger.info("CRITICAL ERROR. PLEASE REPORT TO THE DEVELOPERS.\n" + t.toString());
                 t.printStackTrace();
                 System.exit(1);
             }
@@ -499,10 +484,10 @@ public final class Peers {
             try {
                 Db.beginTransaction();
                 PeerDb.deletePeers(toDelete);
-	            //Logger.logDebugMessage("Deleted " + toDelete.size() + " peers from the peers database");
+	            //logger.debug("Deleted " + toDelete.size() + " peers from the peers database");
                 currentPeers.removeAll(oldPeers);
                 PeerDb.addPeers(currentPeers);
-	            //Logger.logDebugMessage("Added " + currentPeers.size() + " peers to the peers database");
+	            //logger.debug("Added " + currentPeers.size() + " peers to the peers database");
                 Db.commitTransaction();
             } catch (Exception e) {
                 Db.rollbackTransaction();
@@ -546,7 +531,7 @@ public final class Peers {
             try {
                 Init.peerServer.stop();
             } catch (Exception e) {
-                Logger.logShutdownMessage("Failed to stop peer server", e);
+                logger.info("Failed to stop peer server", e);
             }
         }
         if (dumpPeersVersion != null) {
@@ -558,7 +543,7 @@ public final class Peers {
                     buf.append("('").append(entry.getKey()).append("'), ");
                 }
             }
-            Logger.logShutdownMessage(buf.toString());
+            logger.info(buf.toString());
         }
         ThreadPool.shutdownExecutor(sendToPeersService);
 
@@ -627,7 +612,7 @@ public final class Peers {
             InetAddress inetAddress = InetAddress.getByName(host);
             return addPeer(inetAddress.getHostAddress(), announcedAddress);
         } catch (URISyntaxException | UnknownHostException e) {
-            //Logger.logDebugMessage("Invalid peer address: " + announcedAddress + ", " + e.toString());
+            //logger.debug("Invalid peer address: " + announcedAddress + ", " + e.toString());
             return null;
         }
     }
@@ -705,11 +690,11 @@ public final class Peers {
 
          peer = new PeerImpl(host, announcedAddress);
          if (Constants.isTestnet && peer.getPort() != TESTNET_PEER_PORT) {
-             Logger.logDebugMessage("Peer " + host + " on testnet is not using port " + TESTNET_PEER_PORT + ", ignoring");
+             logger.debug("Peer " + host + " on testnet is not using port " + TESTNET_PEER_PORT + ", ignoring");
              return null;
          }
          if (!Constants.isTestnet && peer.getPort() == TESTNET_PEER_PORT) {
-             Logger.logDebugMessage("Peer " + host + " is using testnet port " + peer.getPort() + ", ignoring");
+             logger.debug("Peer " + host + " is using testnet port " + peer.getPort() + ", ignoring");
              return null;
          }
          return peer;
@@ -753,11 +738,11 @@ public final class Peers {
 
         peer = new PeerImpl(peerAddress, announcedPeerAddress);
         if (Constants.isTestnet && peer.getPort() > 0 && peer.getPort() != TESTNET_PEER_PORT) {
-            Logger.logDebugMessage("Peer " + peerAddress + " on testnet is not using port " + TESTNET_PEER_PORT + ", ignoring");
+            logger.debug("Peer " + peerAddress + " on testnet is not using port " + TESTNET_PEER_PORT + ", ignoring");
             return null;
         }
         if (!Constants.isTestnet && peer.getPort() > 0 && peer.getPort() == TESTNET_PEER_PORT) {
-            Logger.logDebugMessage("Peer " + peerAddress + " is using testnet port " + peer.getPort() + ", ignoring");
+            logger.debug("Peer " + peerAddress + " is using testnet port " + peer.getPort() + ", ignoring");
             return null;
         }
         return peer;
@@ -781,14 +766,14 @@ public final class Peers {
         if (oldPeer != null) {
             String oldAnnouncedAddress = oldPeer.getAnnouncedAddress();
             if (oldAnnouncedAddress != null && !oldAnnouncedAddress.equals(newAnnouncedAddress)) {
-                Logger.logDebugMessage("Removing old announced address " + oldAnnouncedAddress + " for peer " + oldPeer.getPeerAddress());
+                logger.debug("Removing old announced address " + oldAnnouncedAddress + " for peer " + oldPeer.getPeerAddress());
                 selfAnnouncedAddresses.remove(oldAnnouncedAddress);
             }
         }
         if (newAnnouncedAddress != null) {
             String oldHost = selfAnnouncedAddresses.put(newAnnouncedAddress, peer.getPeerAddress());
             if (oldHost != null && !peer.getPeerAddress().equals(oldHost)) {
-                Logger.logDebugMessage("Announced address " + newAnnouncedAddress + " now maps to peer " + peer.getPeerAddress()
+                logger.debug("Announced address " + newAnnouncedAddress + " now maps to peer " + peer.getPeerAddress()
                         + ", removing old peer " + oldHost);
                 oldPeer = peers.remove(oldHost);
                 if (oldPeer != null) {
@@ -830,7 +815,7 @@ public final class Peers {
 
         peer = new PeerImpl(peerAddress, announcedPeerAddress);
         if (Constants.isTestnet && peer.getPort() > 0 && peer.getPort() != TESTNET_PEER_PORT) {
-            Logger.logDebugMessage("Peer " + peerAddress + " on testnet is not using port " + TESTNET_PEER_PORT + ", ignoring");
+            logger.debug("Peer " + peerAddress + " on testnet is not using port " + TESTNET_PEER_PORT + ", ignoring");
             return null;
         }
         peers.put(peerAddress, peer);
@@ -851,7 +836,7 @@ public final class Peers {
     static void updateAddress(PeerImpl peer) {
         String oldAddress = announcedAddresses.put(peer.getAnnouncedAddress(), peer.getPeerAddress());
         if (oldAddress != null && !peer.getPeerAddress().equals(oldAddress)) {
-            //Logger.logDebugMessage("Peer " + peer.getAnnouncedAddress() + " has changed address from " + oldAddress
+            //logger.debug("Peer " + peer.getAnnouncedAddress() + " has changed address from " + oldAddress
             //        + " to " + peer.getPeerAddress());
             Peer oldPeer = peers.remove(oldAddress);
             if (oldPeer != null) {
@@ -911,7 +896,7 @@ public final class Peers {
                             } catch (InterruptedException e) {
                                 Thread.currentThread().interrupt();
                             } catch (ExecutionException e) {
-                                Logger.logDebugMessage("Error in sendToSomePeers", e);
+                                logger.debug("Error in sendToSomePeers", e);
                             }
 
                         }
@@ -936,7 +921,7 @@ public final class Peers {
                 info = info + peer.getPeerAddress() + " ";
             }
         }
-        Logger.logDebugMessage(info);
+        logger.debug(info);
 
         JSONObject request = new JSONObject();
         JSONArray transactionsData = new JSONArray();
@@ -1004,8 +989,8 @@ public final class Peers {
             }
             if(wellKnownConnected >= connectWellKnownFirst) {
                 connectWellKnownFinished = true;
-                Logger.logInfoMessage("Finished connecting to " + connectWellKnownFirst + " well known peers.");
-                Logger.logInfoMessage("You can open your Burst Wallet in your favorite browser with: http://127.0.0.1:8125 or http://localhost:8125");
+                logger.info("Finished connecting to " + connectWellKnownFirst + " well known peers.");
+                logger.info("You can open your Burst Wallet in your favorite browser with: http://127.0.0.1:8125 or http://localhost:8125");
             }
         }
 

@@ -2,8 +2,10 @@ package nxt.db;
 
 import nxt.Constants;
 import nxt.Nxt;
-import nxt.util.Logger;
+import org.slf4j.Logger;
 import org.h2.jdbcx.JdbcConnectionPool;
+import nxt.util.LoggerConfigurator;
+import org.slf4j.LoggerFactory;
 
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -13,6 +15,9 @@ import java.util.Map;
 
 public final class Db {
 
+    private static final Logger logger = LoggerFactory.getLogger(Db.class);
+
+    // private static final JdbcConnectionPool cp;
     private static final JdbcConnectionPool cp;
     private static volatile int maxActiveConnections;
 
@@ -75,21 +80,21 @@ public final class Db {
     public static void init() {}
 
     static {
-        long maxCacheSize = Nxt.getIntProperty("nxt.dbCacheKB");
-        if (maxCacheSize == 0) {
-        	maxCacheSize = Math.min(256, Math.max(16, (Runtime.getRuntime().maxMemory() / (1024 * 1024) - 128)/2)) * 1024;
+        String dbUrl;
+        String dbUsername;
+        String dbPassword;
+        if ( Constants.isTestnet ) {
+            dbUrl = Nxt.getStringProperty("nxt.testDbUrl");
+            dbUsername = Nxt.getStringProperty("nxt.testDbUsername");
+            dbPassword = Nxt.getStringProperty("nxt.testDbPassword");
         }
-        String dbUrl = Constants.isTestnet ? Nxt.getStringProperty("nxt.testDbUrl") : Nxt.getStringProperty("nxt.dbUrl");
-        if (! dbUrl.contains("CACHE_SIZE=")) {
-            dbUrl += ";CACHE_SIZE=" + maxCacheSize;
+        else {
+            dbUrl = Nxt.getStringProperty("nxt.dbUrl");
+            dbUsername = Nxt.getStringProperty("nxt.dbUsername");
+            dbPassword = Nxt.getStringProperty("nxt.dbPassword");
         }
-	// Replace old DB-Url if needed:
-	if ( dbUrl.startsWith("jdbc:h2:burst_db")) {
-	    dbUrl = "jdbc:h2:./burst_db" + dbUrl.substring(16);
-	    Logger.logMessage(dbUrl);
-	}
 
-        Logger.logDebugMessage("Database jdbc url set to: " + dbUrl);
+        logger.debug("Database jdbc url set to: " + dbUrl);
         cp = JdbcConnectionPool.create(dbUrl, "sa", "sa");
         cp.setMaxConnections(Nxt.getIntProperty("nxt.maxDbConnections"));
         cp.setLoginTimeout(Nxt.getIntProperty("nxt.dbLoginTimeout"));
@@ -101,14 +106,14 @@ public final class Db {
             throw new RuntimeException(e.toString(), e);
         }
     }
-    
+
     public static void analyzeTables() {
-        try (Connection con = cp.getConnection();
+        /*        try (Connection con = cp.getConnection();
              Statement stmt = con.createStatement()) {
-            stmt.execute("ANALYZE SAMPLE_SIZE 5000");
+            stmt.execute("ANALYZE SAMPLE_SIZE 0");
         } catch (SQLException e) {
             throw new RuntimeException(e.toString(), e);
-        }
+            }*/
     }
 
     public static void shutdown() {
@@ -116,19 +121,21 @@ public final class Db {
             Connection con = cp.getConnection();
             Statement stmt = con.createStatement();
             stmt.execute("SHUTDOWN COMPACT");
-            Logger.logShutdownMessage("Database shutdown completed");
+            logger.info("Database shutdown completed");
         } catch (SQLException e) {
-            Logger.logShutdownMessage(e.toString(), e);
+            logger.info(e.toString(), e);
         }
     }
 
     private static Connection getPooledConnection() throws SQLException {
         Connection con = cp.getConnection();
+        /*
         int activeConnections = cp.getActiveConnections();
         if (activeConnections > maxActiveConnections) {
             maxActiveConnections = activeConnections;
             Logger.logDebugMessage("Database connection pool current size: " + activeConnections);
         }
+        */
         return con;
     }
 

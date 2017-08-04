@@ -5,11 +5,16 @@ import nxt.BlockchainProcessor;
 import nxt.Constants;
 import nxt.Nxt;
 import nxt.NxtException;
-import nxt.util.*;
+import nxt.util.Convert;
+import nxt.util.CountingInputStream;
+import nxt.util.CountingOutputStream;
+import nxt.util.LoggerConfigurator;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONStreamAware;
 import org.json.simple.JSONValue;
 import org.json.simple.parser.ParseException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -41,6 +46,8 @@ final class PeerImpl implements Peer {
     private static final boolean useProxy = System.getProperty("socksProxyHost") != null ||
                                             System.getProperty("http.proxyHost") != null;
 
+    private static final Logger logger = LoggerFactory.getLogger(PeerImpl.class);
+
     private final String peerAddress;
     private final PeerWebSocket webSocket;
     private volatile PeerWebSocket inboundSocket;
@@ -70,9 +77,8 @@ final class PeerImpl implements Peer {
         this.peerAddress = peerAddress;
         this.announcedAddress = announcedAddress;
         try {
-            this.port = new URI("http://" + announcedAddress).getPort();
-        } catch (URISyntaxException ignore) {
-        }
+            this.port = new URL("http://" + announcedAddress).getPort();
+        } catch (MalformedURLException ignore) {}
         this.state = State.NON_CONNECTED;
         this.shareAddress = true;
         this.webSocket = new PeerWebSocket();
@@ -166,7 +172,7 @@ final class PeerImpl implements Peer {
                 }
             }
             if (isOldVersion) {
-                Logger.logDebugMessage(String.format("Blacklisting %s version %s", port, version));
+                logger.debug(String.format("Blacklisting %s version %s", port, version));
                 blacklistingCause = "Old version: " + version;
                 lastInboundRequest = 0;
                 setState(State.NON_CONNECTED);
@@ -290,9 +296,9 @@ final class PeerImpl implements Peer {
         }
         if (!isBlacklisted()) {
             if (cause instanceof IOException || cause instanceof ParseException || cause instanceof IllegalArgumentException) {
-                Logger.logDebugMessage("Blacklisting " + peerAddress + " because of: " + cause.toString());
+                logger.debug("Blacklisting " + peerAddress + " because of: " + cause.toString());
             } else {
-                Logger.logDebugMessage("Blacklisting " + peerAddress + " because of: " + cause.toString(), cause);
+                logger.debug("Blacklisting " + peerAddress + " because of: " + cause.toString(), cause);
             }
         }
         blacklist(cause.toString() == null ? cause.getClass().getName() : cause.toString());
@@ -320,7 +326,7 @@ final class PeerImpl implements Peer {
         if (blacklistingTime == 0) {
             return;
         }
-        Logger.logDebugMessage("Unblacklisting " + peerAddress);
+        logger.debug("Unblacklisting " + peerAddress);
         setState(State.NON_CONNECTED);
         blacklistingTime = 0;
         blacklistingCause = null;
@@ -520,7 +526,7 @@ final class PeerImpl implements Peer {
             if (state == State.CONNECTED ||
                     !(e instanceof UnknownHostException || e instanceof SocketTimeoutException ||
                             e instanceof SocketException || Errors.END_OF_FILE.equals(e.getMessage()))) {
-                Logger.logDebugMessage(String.format("Error sending JSON request to %s: %s",
+                logger.debug(String.format("Error sending JSON request to %s: %s",
                         peerAddress, e.getMessage()!=null ? e.getMessage() : e.toString()));
             }
             if ((Peers.communicationLoggingMask & Peers.LOGGING_MASK_EXCEPTIONS) != 0) {
@@ -534,7 +540,7 @@ final class PeerImpl implements Peer {
         }
 
         if (showLog) {
-            Logger.logMessage(log + "\n");
+                logger.debug(log + "\n");
         }
 
         if (connection != null) {
@@ -567,20 +573,20 @@ final class PeerImpl implements Peer {
                 URI uri = new URI("http://" + announcedAddress);
                 InetAddress inetAddress = InetAddress.getByName(uri.getHost());
                 if (!inetAddress.equals(InetAddress.getByName(peerAddress))) {
-                    Logger.logDebugMessage("Announced address " + announcedAddress + " now points to " + inetAddress.getHostAddress() + ", replacing peer " + peerAddress);
+                    logger.debug("Announced address " + announcedAddress + " now points to " + inetAddress.getHostAddress() + ", replacing peer " + peerAddress);
                     try {
-                        Logger.logDebugMessage("Going to remove peer.");
+                        logger.debug("Going to remove peer.");
                         Peers.removePeer(this);
-                        Logger.logDebugMessage("Peer removed.");
+                        logger.debug("Peer removed.");
                         PeerImpl newPeer = Peers.findOrCreatePeer(inetAddress, announcedAddress, true);
                             if (newPeer != null) {
                             Peers.addPeer(newPeer);
-                                Logger.logDebugMessage(newPeer.toString() + "successfully added.");
+                                logger.debug(newPeer.toString() + "successfully added.");
                             newPeer.connect();
                         }
                     } catch (UnknownError error)
                     {
-                        Logger.logErrorMessage("Failed to remove peer " + peerAddress);
+                        logger.error("Failed to remove peer " + peerAddress);
                     }
                     return;
                 }
@@ -607,16 +613,16 @@ final class PeerImpl implements Peer {
                         newAnnouncedAddress = Peers.addressWithPort(newAnnouncedAddress.toLowerCase());
                         if (newAnnouncedAddress != null) {
                             if (!verifyAnnouncedAddress(newAnnouncedAddress)) {
-                                Logger.logDebugMessage("Connect: new announced address for " + peerAddress + " not accepted");
+                                logger.debug("Connect: new announced address for " + peerAddress + " not accepted");
                                 if (!verifyAnnouncedAddress(announcedAddress)) {
-                                    Logger.logDebugMessage("Connect: old announced address for " + peerAddress + " no longer valid");
+                                    logger.debug("Connect: old announced address for " + peerAddress + " no longer valid");
                                     Peers.setAnnouncedAddress(this, peerAddress);
                                 }
                                 setState(State.NON_CONNECTED);
                                 return;
                             }
                             if (!newAnnouncedAddress.equals(announcedAddress)) {
-                                Logger.logDebugMessage("Connect: peer " + peerAddress + " has new announced address " + newAnnouncedAddress + ", old is " + announcedAddress);
+                                logger.debug("Connect: peer " + peerAddress + " has new announced address " + newAnnouncedAddress + ", old is " + announcedAddress);
                                 int oldPort = getPort();
                                 Peers.setAnnouncedAddress(this, newAnnouncedAddress);
                                 if (getPort() != oldPort) {
@@ -634,7 +640,7 @@ final class PeerImpl implements Peer {
                 if (announcedAddress == null) {
                     if (hallmark == null) {
                         Peers.setAnnouncedAddress(this, peerAddress);
-                        Logger.logDebugMessage("Connected to peer without announced address, setting to " + peerAddress);
+                        logger.debug("Connected to peer without announced address, setting to " + peerAddress);
                     } else {
                         setState(State.NON_CONNECTED);
                         return;
@@ -668,9 +674,9 @@ final class PeerImpl implements Peer {
                     return true;
                 }
             }
-            Logger.logDebugMessage("Announced address " + newAnnouncedAddress + " does not resolve to " + peerAddress);
+            logger.debug("Announced address " + newAnnouncedAddress + " does not resolve to " + peerAddress);
         } catch (UnknownHostException|URISyntaxException e) {
-            Logger.logDebugMessage(e.toString());
+            logger.debug(e.toString());
             blacklist(e);
         }
         return false;
@@ -697,7 +703,7 @@ final class PeerImpl implements Peer {
             Hallmark hallmark = Hallmark.parseHallmark(hallmarkString);
             if (!hallmark.isValid()
                     || !(hallmark.getHost().equals(host) || InetAddress.getByName(host).equals(InetAddress.getByName(hallmark.getHost())))) {
-                //Logger.logDebugMessage("Invalid hallmark for " + host + ", hallmark host is " + hallmark.getHost());
+                //logger.debug("Invalid hallmark for " + host + ", hallmark host is " + hallmark.getHost());
                 return false;
             }
             this.hallmark = hallmark;
@@ -729,7 +735,7 @@ final class PeerImpl implements Peer {
 
         } catch (UnknownHostException ignore) {
         } catch (URISyntaxException | RuntimeException e) {
-            Logger.logDebugMessage("Failed to analyze hallmark for peer " + address + ", " + e.toString(), e);
+            logger.debug("Failed to analyze hallmark for peer " + address + ", " + e.toString(), e);
         }
         return false;
 
