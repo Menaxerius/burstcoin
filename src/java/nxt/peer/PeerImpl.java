@@ -563,24 +563,30 @@ final class PeerImpl implements Peer {
     void connect() {
         lastConnectAttempt = Nxt.getEpochTime();
         try {
-            if (!Peers.ignorePeerAnnouncedAddress && announcedAddress != null) {
-                try {
-                    URI uri = new URI("http://" + announcedAddress);
-                    InetAddress inetAddress = InetAddress.getByName(uri.getHost());
-                    if (!inetAddress.equals(InetAddress.getByName(peerAddress))) {
-                        Logger.logDebugMessage("Announced address " + announcedAddress + " now points to " + inetAddress.getHostAddress() + ", replacing peer " + peerAddress);
+            if (!Peers.ignorePeerAnnouncedAddress && announcedAddress != null) try {
+                URI uri = new URI("http://" + announcedAddress);
+                InetAddress inetAddress = InetAddress.getByName(uri.getHost());
+                if (!inetAddress.equals(InetAddress.getByName(peerAddress))) {
+                    Logger.logDebugMessage("Announced address " + announcedAddress + " now points to " + inetAddress.getHostAddress() + ", replacing peer " + peerAddress);
+                    try {
+                        Logger.logDebugMessage("Going to remove peer.");
                         Peers.removePeer(this);
+                        Logger.logDebugMessage("Peer removed.");
                         PeerImpl newPeer = Peers.findOrCreatePeer(inetAddress, announcedAddress, true);
-                        if (newPeer != null) {
+                            if (newPeer != null) {
                             Peers.addPeer(newPeer);
+                                Logger.logDebugMessage(newPeer.toString() + "successfully added.");
                             newPeer.connect();
                         }
-                        return;
+                    } catch (UnknownError error)
+                    {
+                        Logger.logErrorMessage("Failed to remove peer " + peerAddress);
                     }
-                } catch (URISyntaxException | UnknownHostException e) {
-                    blacklist(e);
                     return;
                 }
+            } catch (URISyntaxException | UnknownHostException e) {
+                blacklist(e);
+                return;
             }
             JSONObject response = send(Peers.myPeerInfoRequest);
             if (response != null) {
