@@ -134,6 +134,12 @@ final class PeerImpl implements Peer {
 
     void setVersion(String version) {
         this.version = version;
+        if (version != null && version.length() > Peers.MAX_VERSION_LENGTH) {
+            throw new IllegalArgumentException("Invalid version length: " + version.length());
+        }
+        if (this.version != null && this.version.equals(version)) {
+            return;
+        }
         isOldVersion = false;
         if (Nxt.APPLICATION.equals(application) && version != null) {
             String[] versions = version.split("\\.");
@@ -172,6 +178,9 @@ final class PeerImpl implements Peer {
     }
 
     void setApplication(String application) {
+        if (application == null || application.length() > Peers.MAX_APPLICATION_LENGTH) {
+            throw new IllegalArgumentException("Invalid application");
+        }
         this.application = application;
     }
 
@@ -181,6 +190,9 @@ final class PeerImpl implements Peer {
     }
 
     void setPlatform(String platform) {
+        if (platform != null && platform.length() > Peers.MAX_PLATFORM_LENGTH) {
+            throw new IllegalArgumentException("Invalid platform length: " + platform.length());
+        }
         this.platform = platform;
     }
 
@@ -545,34 +557,93 @@ final class PeerImpl implements Peer {
     }
 
     void connect() {
-        JSONObject response = send(Peers.myPeerInfoRequest);
-        if (response != null) {
-            application = (String)response.get("application");
-            setVersion((String) response.get("version"));
-            platform = (String)response.get("platform");
-            shareAddress = Boolean.TRUE.equals(response.get("shareAddress"));
-            String newAnnouncedAddress = Convert.emptyToNull((String)response.get("announcedAddress"));
-            if (newAnnouncedAddress != null && ! newAnnouncedAddress.equals(announcedAddress)) {
-                // force verification of changed announced address
-                setState(State.NON_CONNECTED);
-                setAnnouncedAddress(newAnnouncedAddress);
-                return;
+        lastConnectAttempt = Nxt.getEpochTime();
+        try {
+            if (!Peers.ignorePeerAnnouncedAddress && announcedAddress != null) {
+                try {
+                    URI uri = new URI("http://" + announcedAddress);
+                    InetAddress inetAddress = InetAddress.getByName(uri.getHost());
+                    if (!inetAddress.equals(InetAddress.getByName(peerAddress))) {
+                        Logger.logDebugMessage("Announced address " + announcedAddress + " now points to " + inetAddress.getHostAddress() + ", replacing peer " + peerAddress);
+                        Peers.removePeer(this);
+                        PeerImpl newPeer = Peers.findOrCreatePeer(inetAddress, announcedAddress, true);
+                        if (newPeer != null) {
+                            Peers.addPeer(newPeer);
+                            newPeer.connect();
+                        }
+                        return;
+                    }
+                } catch (URISyntaxException | UnknownHostException e) {
+                    blacklist(e);
+                    return;
+                }
             }
-            if (announcedAddress == null) {
-                setAnnouncedAddress(peerAddress);
-                //Logger.logDebugMessage("Connected to peer without announced address, setting to " + peerAddress);
-            }
-            if (analyzeHallmark(announcedAddress, (String)response.get("hallmark"))) {
-                setState(State.CONNECTED);
-                Peers.updateAddress(this);
+            JSONObject response = send(Peers.myPeerInfoRequest);
+            if (response != null) {
+                if (response.get("error") != null) {
+                    setState(State.NON_CONNECTED);
+                    return;
+                }
+                setApplication((String)response.get("application"));
+                lastUpdated = lastConnectAttempt;
+                setVersion((String) response.get("version"));
+                setPlatform((String) response.get("platform"));
+                shareAddress = Boolean.TRUE.equals(response.get("shareAddress"));
+                analyzeHallmark(announcedAddress, (String) response.get("hallmark"));
+
+                if (!Peers.ignorePeerAnnouncedAddress) {
+                    String newAnnouncedAddress = Convert.emptyToNull((String) response.get("announcedAddress"));
+                    if (newAnnouncedAddress != null) {
+                        newAnnouncedAddress = Peers.addressWithPort(newAnnouncedAddress.toLowerCase());
+                        if (newAnnouncedAddress != null) {
+                            if (!verifyAnnouncedAddress(newAnnouncedAddress)) {
+                                Logger.logDebugMessage("Connect: new announced address for " + peerAddress + " not accepted");
+                                if (!verifyAnnouncedAddress(announcedAddress)) {
+                                    Logger.logDebugMessage("Connect: old announced address for " + peerAddress + " no longer valid");
+                                    Peers.setAnnouncedAddress(this, peerAddress);
+                                }
+                                setState(State.NON_CONNECTED);
+                                return;
+                            }
+                            if (!newAnnouncedAddress.equals(announcedAddress)) {
+                                Logger.logDebugMessage("Connect: peer " + peerAddress + " has new announced address " + newAnnouncedAddress + ", old is " + announcedAddress);
+                                int oldPort = getPort();
+                                Peers.setAnnouncedAddress(this, newAnnouncedAddress);
+                                if (getPort() != oldPort) {
+                                    // force checking connectivity to new announced port
+                                    setState(State.NON_CONNECTED);
+                                    return;
+                                }
+                            }
+                        }
+                    } else {
+                        Peers.setAnnouncedAddress(this, peerAddress);
+                    }
+                }
+
+                if (announcedAddress == null) {
+                    if (hallmark == null) {
+                        Peers.setAnnouncedAddress(this, peerAddress);
+                        Logger.logDebugMessage("Connected to peer without announced address, setting to " + peerAddress);
+                    } else {
+                        setState(State.NON_CONNECTED);
+                        return;
+                    }
+                }
+                if (!isOldVersion) {
+                    setState(State.CONNECTED);
+                } else if (!isBlacklisted()) {
+                    blacklist("Old version: " + version);
+                }
             } else {
-                blacklist();
+                //Logger.logDebugMessage("Failed to connect to peer " + peerAddress);
+                setState(State.NON_CONNECTED);
             }
-            lastUpdated = Nxt.getEpochTime();
-        } else {
-            setState(State.NON_CONNECTED);
+        } catch (RuntimeException e) {
+            blacklist(e);
         }
     }
+
 
     boolean verifyAnnouncedAddress(String newAnnouncedAddress) {
         if (newAnnouncedAddress == null) {

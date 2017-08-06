@@ -116,6 +116,9 @@ public final class Peers {
     static {
 
         myPlatform = Nxt.getStringProperty("nxt.myPlatform");
+        if (myPlatform.length() > MAX_PLATFORM_LENGTH) {
+            throw new RuntimeException("nxt.myPlatform length exceeds " + MAX_PLATFORM_LENGTH);
+        }
         myAddress = Nxt.getStringProperty("nxt.myAddress");
         if (myAddress != null && myAddress.endsWith(":" + TESTNET_PEER_PORT) && !Constants.isTestnet) {
             throw new RuntimeException("Port " + TESTNET_PEER_PORT + " should only be used for testnet!!!");
@@ -149,14 +152,19 @@ public final class Peers {
                 URI uri = new URI("http://" + myAddress.trim());
                 String host = uri.getHost();
                 int port = uri.getPort();
+                String announcedAddress;
                 if (!Constants.isTestnet) {
                     if (port >= 0)
-                        json.put("announcedAddress", myAddress);
+                        announcedAddress = myAddress;
                     else
-                        json.put("announcedAddress", host + (myPeerServerPort != DEFAULT_PEER_PORT ? ":" + myPeerServerPort : ""));
+                        announcedAddress = host + (myPeerServerPort != DEFAULT_PEER_PORT ? ":" + myPeerServerPort : "");
                 } else {
-                    json.put("announcedAddress", host);
+                    announcedAddress = host;
                 }
+                if (announcedAddress == null || announcedAddress.length() > MAX_ANNOUNCED_ADDRESS_LENGTH) {
+                    throw new RuntimeException("Invalid announced address length: " + announcedAddress);
+                }
+                json.put("announcedAddress", announcedAddress);
             } catch (URISyntaxException e) {
                 Logger.logMessage("Your announce address is invalid: " + myAddress);
                 throw new RuntimeException(e.toString(), e);
@@ -694,6 +702,7 @@ public final class Peers {
          if (announcedAddress != null && announcedAddress.length() > MAX_ANNOUNCED_ADDRESS_LENGTH) {
              return null;
          }
+
          peer = new PeerImpl(host, announcedAddress);
          if (Constants.isTestnet && peer.getPort() != TESTNET_PEER_PORT) {
              Logger.logDebugMessage("Peer " + host + " on testnet is not using port " + TESTNET_PEER_PORT + ", ignoring");
