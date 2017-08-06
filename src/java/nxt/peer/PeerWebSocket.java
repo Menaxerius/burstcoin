@@ -2,9 +2,9 @@ package nxt.peer;
 
 import nxt.Nxt;
 import nxt.util.Logger;
-
 import org.eclipse.jetty.websocket.api.Session;
 import org.eclipse.jetty.websocket.api.UpgradeException;
+import org.eclipse.jetty.websocket.api.WebSocketException;
 import org.eclipse.jetty.websocket.api.annotations.OnWebSocketClose;
 import org.eclipse.jetty.websocket.api.annotations.OnWebSocketConnect;
 import org.eclipse.jetty.websocket.api.annotations.OnWebSocketMessage;
@@ -16,7 +16,9 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.net.ProtocolException;
+import java.net.SocketException;
 import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.nio.ByteBuffer;
@@ -28,8 +30,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
@@ -73,14 +75,14 @@ public class PeerWebSocket {
     /** Thread pool for server request processing */
     private static final ThreadPoolExecutor threadPool =
             new ThreadPoolExecutor(Runtime.getRuntime().availableProcessors(),
-                                   Runtime.getRuntime().availableProcessors()*4,
-                                   60, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
+                    Runtime.getRuntime().availableProcessors()*4,
+                    60, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
 
     /** WebSocket session */
-    private Session session;
+    private volatile Session session;
 
     /** WebSocket endpoint - set for an accepted connection */
-    private PeerServlet peerServlet;
+    private final PeerServlet peerServlet;
 
     /** WebSocket client - set for an initiated connection */
     private WebSocketClient peerClient;
@@ -101,9 +103,7 @@ public class PeerWebSocket {
      * Create a client socket
      */
     public PeerWebSocket() {
-        peerClient = new WebSocketClient();
-        peerClient.getPolicy().setIdleTimeout(Peers.webSocketIdleTimeout);
-        peerClient.getPolicy().setMaxBinaryMessageSize(MAX_MESSAGE_SIZE);
+        peerServlet = null;
     }
 
     /**
@@ -113,6 +113,7 @@ public class PeerWebSocket {
      */
     public PeerWebSocket(PeerServlet peerServlet) {
         this.peerServlet = peerServlet;
+
     }
 
     /**
@@ -138,12 +139,18 @@ public class PeerWebSocket {
                 useWebSocket = true;
             } else if (System.currentTimeMillis() > connectTime+10*1000) {
                 connectTime = System.currentTimeMillis();
-                if (!peerClient.isStarting() && !peerClient.isStarted())
+                if (peerClient == null) {
+                    peerClient = new WebSocketClient();
+                    peerClient.getPolicy().setIdleTimeout(Peers.webSocketIdleTimeout);
+                    peerClient.getPolicy().setMaxBinaryMessageSize(MAX_MESSAGE_SIZE);
                     peerClient.start();
+                } else if (!peerClient.isStarting() && !peerClient.isStarted()) {
+                    peerClient.start();
+                }
                 peerClient.setConnectTimeout(Peers.connectTimeout);
                 ClientUpgradeRequest req = new ClientUpgradeRequest();
                 Future<Session> conn = peerClient.connect(this, uri, req);
-                session = conn.get(Peers.connectTimeout+100, TimeUnit.MILLISECONDS);
+                conn.get(Peers.connectTimeout+100, TimeUnit.MILLISECONDS);
                 useWebSocket = true;
             }
         } catch (ExecutionException exc) {
@@ -176,17 +183,30 @@ public class PeerWebSocket {
     @OnWebSocketConnect
     public void onConnect(Session session) {
         this.session = session;
-        Logger.logDebugMessage(String.format("WebSocket connection with %s completed",
-                                             session.getRemoteAddress().getHostString()));
+        if ((Peers.communicationLoggingMask & Peers.LOGGING_MASK_200_RESPONSES) != 0)
+            Logger.logDebugMessage(String.format("%s WebSocket connection with %s completed",
+                    peerServlet != null ? "Inbound" : "Outbound",
+                    session.getRemoteAddress().getHostString()));
     }
 
     /**
-     * Return the WebSocket session for this connection
+     * Check if we have a WebSocket connection
      *
-     * @return                      WebSocket session or null if there is no session
+     * @return                      TRUE if we have a WebSocket connection
      */
-    public Session getSession() {
-        return session;
+    public boolean isOpen() {
+        Session s;
+        return ((s=session) != null && s.isOpen());
+    }
+
+    /**
+     * Return the remote address for this connection
+     *
+     * @return                      Remote address or null if the connection is closed
+     */
+    public InetSocketAddress getRemoteAddress() {
+        Session s;
+        return ((s=session) != null && s.isOpen() ? s.getRemoteAddress() : null);
     }
 
     /**
@@ -229,6 +249,8 @@ public class PeerWebSocket {
             if (buf.limit() > MAX_MESSAGE_SIZE)
                 throw new ProtocolException("POST request length exceeds max message size");
             session.getRemote().sendBytes(buf);
+        } catch (WebSocketException exc) {
+            throw new SocketException(exc.getMessage());
         } finally {
             lock.unlock();
         }
@@ -241,7 +263,7 @@ public class PeerWebSocket {
             requestMap.put(requestId, postRequest);
             response = postRequest.get(Peers.readTimeout, TimeUnit.MILLISECONDS);
         } catch (InterruptedException exc) {
-            throw new IOException("WebSocket POST interrupted", exc);
+            throw new SocketTimeoutException("WebSocket POST interrupted");
         }
         return response;
     }
@@ -262,7 +284,7 @@ public class PeerWebSocket {
                 byte[] responseBytes = response.getBytes("UTF-8");
                 int responseLength = responseBytes.length;
                 int flags = 0;
-                if (isGzipEnabled && responseLength >= MIN_COMPRESS_SIZE) {
+                if (isGzipEnabled && responseLength>=MIN_COMPRESS_SIZE) {
                     flags |= FLAG_COMPRESSED;
                     ByteArrayOutputStream outStream = new ByteArrayOutputStream(responseLength);
                     try (GZIPOutputStream gzipStream = new GZIPOutputStream(outStream)) {
@@ -270,7 +292,7 @@ public class PeerWebSocket {
                     }
                     responseBytes = outStream.toByteArray();
                 }
-                ByteBuffer buf = ByteBuffer.allocate(responseBytes.length + 20);
+                ByteBuffer buf = ByteBuffer.allocate(responseBytes.length+20);
                 buf.putInt(version)
                         .putLong(requestId)
                         .putInt(flags)
@@ -281,6 +303,8 @@ public class PeerWebSocket {
                     throw new ProtocolException("POST response length exceeds max message size");
                 session.getRemote().sendBytes(buf);
             }
+        } catch (WebSocketException exc) {
+            throw new SocketException(exc.getMessage());
         } finally {
             lock.unlock();
         }
@@ -294,7 +318,7 @@ public class PeerWebSocket {
      * @param   len                 Message length
      */
     @OnWebSocketMessage
-    public void OnMessage(byte[] inbuf, int off, int len) {
+    public void onMessage(byte[] inbuf, int off, int len) {
         lock.lock();
         try {
             ByteBuffer buf = ByteBuffer.wrap(inbuf, off, len);
@@ -332,7 +356,6 @@ public class PeerWebSocket {
         }
     }
 
-
     /**
      * WebSocket session has been closed
      *
@@ -344,13 +367,15 @@ public class PeerWebSocket {
         lock.lock();
         try {
             if (session != null) {
-                Logger.logDebugMessage(String.format("WebSocket connection with %s closed",
-                                       session.getRemoteAddress().getHostString()));
+                if ((Peers.communicationLoggingMask & Peers.LOGGING_MASK_200_RESPONSES) != 0)
+                    Logger.logDebugMessage(String.format("%s WebSocket connection with %s closed",
+                            peerServlet!=null ? "Inbound" : "Outbound",
+                            session.getRemoteAddress().getHostString()));
                 session = null;
             }
-            IOException exc = new IOException("WebSocket connection closed");
+            SocketException exc = new SocketException("WebSocket connection closed");
             Set<Map.Entry<Long, PostRequest>> requests = requestMap.entrySet();
-            requests.stream().forEach((entry) -> entry.getValue().complete(exc));
+            requests.forEach((entry) -> entry.getValue().complete(exc));
             requestMap.clear();
         } finally {
             lock.unlock();
@@ -365,8 +390,11 @@ public class PeerWebSocket {
         try {
             if (session != null && session.isOpen())
                 session.close();
-            if (peerClient != null && (peerClient.isStarting() || peerClient.isStarted()))
-                peerClient.stop();
+            if (peerClient != null) {
+                if (peerClient.isStarting() || peerClient.isStarted())
+                    peerClient.stop();
+                peerClient = null;
+            }
         } catch (Exception exc) {
             Logger.logDebugMessage("Exception while closing WebSocket", exc);
         } finally {
@@ -407,7 +435,7 @@ public class PeerWebSocket {
          */
         public String get(long timeout, TimeUnit unit) throws InterruptedException, IOException {
             if (!latch.await(timeout, unit))
-                throw new IOException("WebSocket read timeout exceeded");
+                throw new SocketTimeoutException("WebSocket read timeout exceeded");
             if (exception != null)
                 throw exception;
             return response;
@@ -430,10 +458,10 @@ public class PeerWebSocket {
          *
          * The caller must hold the lock for the request condition
          *
-         * @param   IOException             I/O exception
+         * @param   exception             I/O exception
          */
-        public void complete(IOException exc) {
-            exception = exc;
+        public void complete(IOException exception) {
+            this.exception = exception;
             latch.countDown();
         }
     }

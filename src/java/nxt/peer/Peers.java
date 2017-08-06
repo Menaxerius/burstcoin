@@ -73,6 +73,7 @@ public final class Peers {
     static final int MAX_RESPONSE_SIZE = 1024 * 1024;
     static final boolean useWebSockets;
     static final int webSocketIdleTimeout;
+    static final boolean useProxy = System.getProperty("socksProxyHost") != null || System.getProperty("http.proxyHost") != null;
 
     static final int DEFAULT_PEER_PORT = 8123;
     static final int TESTNET_PEER_PORT = 7123;
@@ -88,9 +89,13 @@ public final class Peers {
     private static final int sendToPeersLimit;
     private static final boolean usePeersDb;
     private static final boolean savePeers;
+    static final boolean ignorePeerAnnouncedAddress;
     private static final String dumpPeersVersion;
     static final boolean cjdnsOnly;
-
+    static final int MAX_VERSION_LENGTH = 10;
+    static final int MAX_APPLICATION_LENGTH = 20;
+    static final int MAX_PLATFORM_LENGTH = 30;
+    static final int MAX_ANNOUNCED_ADDRESS_LENGTH = 100;
 
 
     static final JSONStreamAware myPeerInfoRequest;
@@ -100,6 +105,7 @@ public final class Peers {
 
     private static final ConcurrentMap<String, PeerImpl> peers = new ConcurrentHashMap<>();
     private static final ConcurrentMap<String, String> announcedAddresses = new ConcurrentHashMap<>();
+    private static final ConcurrentMap<String, String> selfAnnouncedAddresses = new ConcurrentHashMap<>();
 
     static final Collection<PeerImpl> allPeers = Collections.unmodifiableCollection(peers.values());
 
@@ -210,7 +216,7 @@ public final class Peers {
         enableHallmarkProtection = Nxt.getBooleanProperty("nxt.enableHallmarkProtection");
         pushThreshold = Nxt.getIntProperty("nxt.pushThreshold");
         pullThreshold = Nxt.getIntProperty("nxt.pullThreshold");
-
+        dumpPeersVersion = Nxt.getStringProperty("nxt.dumpPeersVersion");
         useWebSockets = Nxt.getBooleanProperty("nxt.useWebSockets");
         webSocketIdleTimeout = Nxt.getIntProperty("nxt.webSocketIdleTimeout");
         blacklistingPeriod = Nxt.getIntProperty("nxt.blacklistingPeriod");
@@ -219,8 +225,11 @@ public final class Peers {
         usePeersDb = Nxt.getBooleanProperty("nxt.usePeersDb") && ! Constants.isOffline;
         savePeers = usePeersDb && Nxt.getBooleanProperty("nxt.savePeers");
         getMorePeers = Nxt.getBooleanProperty("nxt.getMorePeers");
-        dumpPeersVersion = Nxt.getStringProperty("nxt.dumpPeersVersion");
         cjdnsOnly = Nxt.getBooleanProperty("nxt.cjdnsOnly");
+        ignorePeerAnnouncedAddress = Nxt.getBooleanProperty("nxt.ignorePeerAnnouncedAddress");
+        if (useWebSockets && useProxy) {
+            Logger.logMessage("Using a proxy, will not create outbound websockets.");
+        }
 
         final List<Future<String>> unresolvedPeers = Collections.synchronizedList(new ArrayList<Future<String>>());
 
@@ -587,6 +596,7 @@ public final class Peers {
         return peers.get(peerAddress);
     }
 
+
     public static Peer addPeer(String announcedAddress) {
         if (announcedAddress == null) {
             return null;
@@ -613,7 +623,6 @@ public final class Peers {
             return null;
         }
     }
-
 
     public static PeerImpl findOrCreatePeer(String announcedAddress, boolean create) {
         if (announcedAddress == null) {
@@ -645,6 +654,57 @@ public final class Peers {
             return null;
         }
     }
+
+
+      static PeerImpl findOrCreatePeer(String host) {
+         try {
+             InetAddress inetAddress = InetAddress.getByName(host);
+             return findOrCreatePeer(inetAddress, null, true);
+         } catch (UnknownHostException e) {
+             return null;
+         }
+     }
+
+      static PeerImpl findOrCreatePeer(final InetAddress inetAddress, final String announcedAddress, final boolean create) {
+
+         if (inetAddress.isAnyLocalAddress() || inetAddress.isLoopbackAddress() || inetAddress.isLinkLocalAddress()) {
+             return null;
+         }
+
+         String host = inetAddress.getHostAddress();
+         if (Peers.cjdnsOnly && !host.substring(0,2).equals("fc")) {
+             return null;
+         }
+         //re-add the [] to ipv6 addresses lost in getHostAddress() above
+         if (host.split(":").length > 2) {
+             host = "[" + host + "]";
+         }
+
+         PeerImpl peer;
+         if ((peer = peers.get(host)) != null) {
+             return peer;
+         }
+         if (!create) {
+             return null;
+         }
+
+         if (Peers.myAddress != null && Peers.myAddress.equalsIgnoreCase(announcedAddress)) {
+             return null;
+         }
+         if (announcedAddress != null && announcedAddress.length() > MAX_ANNOUNCED_ADDRESS_LENGTH) {
+             return null;
+         }
+         peer = new PeerImpl(host, announcedAddress);
+         if (Constants.isTestnet && peer.getPort() != TESTNET_PEER_PORT) {
+             Logger.logDebugMessage("Peer " + host + " on testnet is not using port " + TESTNET_PEER_PORT + ", ignoring");
+             return null;
+         }
+         if (!Constants.isTestnet && peer.getPort() == TESTNET_PEER_PORT) {
+             Logger.logDebugMessage("Peer " + host + " is using testnet port " + peer.getPort() + ", ignoring");
+             return null;
+         }
+         return peer;
+     }
 
     static PeerImpl findOrCreatePeer(final String address, int port, final String announcedAddress, final boolean create) {
 
@@ -705,6 +765,29 @@ public final class Peers {
 
     static String addressWithPort(String host, int port) {
         return port > 0 && port != Peers.getDefaultPeerPort() ? host + ":" + port : host;
+    }
+
+    static void setAnnouncedAddress(PeerImpl peer, String newAnnouncedAddress) {
+        Peer oldPeer = peers.get(peer.getPeerAddress());
+        if (oldPeer != null) {
+            String oldAnnouncedAddress = oldPeer.getAnnouncedAddress();
+            if (oldAnnouncedAddress != null && !oldAnnouncedAddress.equals(newAnnouncedAddress)) {
+                Logger.logDebugMessage("Removing old announced address " + oldAnnouncedAddress + " for peer " + oldPeer.getPeerAddress());
+                selfAnnouncedAddresses.remove(oldAnnouncedAddress);
+            }
+        }
+        if (newAnnouncedAddress != null) {
+            String oldHost = selfAnnouncedAddresses.put(newAnnouncedAddress, peer.getPeerAddress());
+            if (oldHost != null && !peer.getPeerAddress().equals(oldHost)) {
+                Logger.logDebugMessage("Announced address " + newAnnouncedAddress + " now maps to peer " + peer.getPeerAddress()
+                        + ", removing old peer " + oldHost);
+                oldPeer = peers.remove(oldHost);
+                if (oldPeer != null) {
+                    Peers.notifyListeners(oldPeer, Event.REMOVE);
+                }
+            }
+        }
+        peer.setAnnouncedAddress(newAnnouncedAddress);
     }
 
     public static int getDefaultPeerPort() {
@@ -894,7 +977,7 @@ public final class Peers {
     }
 
     public static boolean addPeer(Peer peer) {
-        if (addPeer((PeerImpl)peer)) {
+        if (addPeer((PeerImpl) peer)) {
             listeners.notify(peer, Event.NEW_PEER);
             return true;
         }

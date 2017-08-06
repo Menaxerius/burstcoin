@@ -11,6 +11,8 @@ public interface Peer extends Comparable<Peer> {
 
     String getPeerAddress();
 
+    int getPort();
+
     String getAnnouncedAddress();
 
     State getState();
@@ -37,6 +39,8 @@ public interface Peer extends Comparable<Peer> {
 
     void blacklist(Exception cause);
 
+    void blacklist(String cause);
+
     void blacklist();
 
     void unBlacklist();
@@ -50,6 +54,14 @@ public interface Peer extends Comparable<Peer> {
     long getUploadedVolume();
 
     int getLastUpdated();
+
+    boolean isInbound();
+
+    boolean isInboundWebSocket();
+
+    boolean isOutboundWebSocket();
+
+    String getBlacklistingCause();
 
     JSONObject send(JSONStreamAware request);
 

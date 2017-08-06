@@ -1,11 +1,6 @@
 package nxt.peer;
 
-import nxt.util.CountingInputStream;
-import nxt.util.CountingOutputStream;
-import nxt.util.CountingInputReader;
-import nxt.util.CountingOutputWriter;
-import nxt.util.JSON;
-import nxt.util.Logger;
+import nxt.util.*;
 import org.eclipse.jetty.server.Response;
 import org.eclipse.jetty.servlets.gzip.CompressedResponseWrapper;
 import org.eclipse.jetty.websocket.servlet.ServletUpgradeRequest;
@@ -19,9 +14,9 @@ import org.json.simple.JSONValue;
 
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
-import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpServlet;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
@@ -29,6 +24,7 @@ import java.io.Reader;
 import java.io.Writer;
 import java.io.StringReader;
 import java.io.StringWriter;
+import java.net.InetSocketAddress;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -61,22 +57,36 @@ public final class PeerServlet extends WebSocketServlet {
     private static final JSONStreamAware UNSUPPORTED_REQUEST_TYPE;
     static {
         JSONObject response = new JSONObject();
-        response.put("error", "Unsupported request type!");
+        response.put("error", Errors.UNSUPPORTED_REQUEST_TYPE);
         UNSUPPORTED_REQUEST_TYPE = JSON.prepare(response);
     }
 
     private static final JSONStreamAware UNSUPPORTED_PROTOCOL;
     static {
         JSONObject response = new JSONObject();
-        response.put("error", "Unsupported protocol!");
+        response.put("error", Errors.UNSUPPORTED_PROTOCOL);
         UNSUPPORTED_PROTOCOL = JSON.prepare(response);
     }
 
     private static final JSONStreamAware UNKNOWN_PEER;
     static {
         JSONObject response = new JSONObject();
-        response.put("error", "Unknown Peer!");
+        response.put("error", Errors.UNKNOWN_PEER);
         UNKNOWN_PEER = JSON.prepare(response);
+    }
+
+    private static final JSONStreamAware SEQUENCE_ERROR;
+    static {
+        JSONObject response = new JSONObject();
+        response.put("error", Errors.SEQUENCE_ERROR);
+        SEQUENCE_ERROR = JSON.prepare(response);
+    }
+
+    private static final JSONStreamAware MAX_INBOUND_CONNECTIONS;
+    static {
+        JSONObject response = new JSONObject();
+        response.put("error", Errors.MAX_INBOUND_CONNECTIONS);
+        MAX_INBOUND_CONNECTIONS = JSON.prepare(response);
     }
 
     private boolean isGzipEnabled;
@@ -187,6 +197,7 @@ public final class PeerServlet extends WebSocketServlet {
         }
     }
 
+
     /**
      * Process WebSocket POST request
      *
@@ -199,33 +210,38 @@ public final class PeerServlet extends WebSocketServlet {
         //
         // Process the peer request
         //
-        String remoteAddr = webSocket.getSession().getRemoteAddress().getHostString();
-        PeerImpl peer = Peers.findOrCreatePeer(remoteAddr, -1, null, true);
-        if (peer == null)
+        InetSocketAddress socketAddress = webSocket.getRemoteAddress();
+        if (socketAddress == null)
+            return;
+        String remoteAddress = socketAddress.getHostString();
+        PeerImpl peer = Peers.findOrCreatePeer(remoteAddress, -1, null, true);
+        if (peer == null) {
             jsonResponse = UNKNOWN_PEER;
-        else
+        } else {
+            peer.setInboundWebSocket(webSocket);
             jsonResponse = process(peer, new StringReader(request));
+        }
         //
         // Return the response
         //
         try {
             StringWriter writer = new StringWriter(1000);
-            jsonResponse.writeJSONString(writer);
+            JSON.writeJSONString(jsonResponse, writer);
             String response = writer.toString();
             webSocket.sendResponse(requestId, response);
             if (peer != null)
                 peer.updateUploadedVolume(response.length());
         } catch (RuntimeException | IOException e) {
             if (peer != null) {
-                if (e instanceof RuntimeException)
-                    Logger.logDebugMessage(String.format("Send failed to peer %s",
-                            peer.getAnnouncedAddress()!=null ? peer.getAnnouncedAddress() : peer.getPeerAddress()), e);
-                else
-                    Logger.logDebugMessage(String.format("Send failed to peer %s: %s",
-                            peer.getAnnouncedAddress()!=null ? peer.getAnnouncedAddress() : peer.getPeerAddress(),
-                            e.getMessage()!=null ? e.getMessage() : e.toString()));
-                if (!(e instanceof IOException))
-                    peer.blacklist(e);
+                if ((Peers.communicationLoggingMask & Peers.LOGGING_MASK_EXCEPTIONS) != 0) {
+                    if (e instanceof RuntimeException) {
+                        Logger.logDebugMessage("Error sending response to peer " + peer.getPeerAddress(), e);
+                    } else {
+                        Logger.logDebugMessage(String.format("Error sending response to peer %s: %s",
+                                peer.getPeerAddress(), e.getMessage()!=null ? e.getMessage() : e.toString()));
+                    }
+                }
+                peer.blacklist(e);
             }
         }
     }

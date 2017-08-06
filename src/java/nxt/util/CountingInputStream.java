@@ -1,5 +1,6 @@
 package nxt.util;
 
+import javax.servlet.ServletInputStream;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -7,6 +8,10 @@ import java.io.InputStream;
 public class CountingInputStream extends FilterInputStream {
 
     private long count;
+
+    public CountingInputStream(InputStream in, int maxResponseSize) {
+        super(in);
+    }
 
     public CountingInputStream(InputStream in) {
         super(in);
