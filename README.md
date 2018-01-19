@@ -1,75 +1,210 @@
-# Burstcoin
+<img align="right" width="120" height="120" title="Burst Logo" src="https://raw.githubusercontent.com/PoC-Consortium/Marketing_Resources/master/BURST_LOGO/PNG/icon_blue.png" />
 
-The world's first HDD-mined cryptocurrency using the new algorithm, Proof-of-Capacity.
+# Burstcoin Wallet
+
+[![Get Support at https://discord.gg/NKXGM6N](https://img.shields.io/badge/join-discord-blue.svg)](https://discord.gg/NKXGM6N)
+[![Build Status](https://api.travis-ci.org/PoC-Consortium/burstcoin.svg?branch=master)](https://travis-ci.org/PoC-Consortium/burstcoin?branch=master) 
+![Quality Gate](https://sonarqube.com/api/badges/gate?key=burstcoin:burstcoin)
+[![MIT](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE.txt)
+
+The world's first HDD-mined cryptocurrency using an energy efficient
+and fair Proof-of-Capacity (PoC) consensus algorithm.
+
+This wallet version is developed and maintained by the PoC consortium (PoCC) and supports several database backends:
+- MariaDB (recommended, but complex installation)
+- Firebird (2nd best choice)
+- H2 (for compatibility/migration purposes)
+
+
+### Software Installation
+
+#### Linux (Debian, Ubuntu)
+
+Please take a look at http://package.cryptoguru.org/ where you can
+find the burstcoincg package. This will take care of the MariaDB
+installation for you.
+
+#### Windows
+
+###### MariaDb
+
+In the conf directory, copy brs-default.properties into a new file named brs.properties.
+
+Download and install MariaDB https://mariadb.com/downloads/mariadb-tx
+
+The MariaDb installation will ask to setup a password for the root user. 
+Add this password to the brs.properties file created above in the following section:
+```
+brs.dbUrl=jdbc:mariadb://localhost:3306/burstwallet
+brs.dbUsername=root
+brs.dbPassword=YOUR_PASSWORD
+```
+
+The MariaDB installation will also install HeidiSQL, a gui tool to administer MariaDb.
+Use it to connect to the newly created mariaDb server and create a new DB called 'burstwallet'. 
+
+###### Firebird (alternative to MariaDb)
+
+If you are not familiar with MariaDB we recommend you to go for
+Firebird, in which case the following data needs to be added to
+`conf/brs.properties`
+
+```
+brs.dbUrl=jdbc:firebirdsql:embedded:burst.firebird.db
+brs.dbUsername=sysdba
+brs.dbPassword=
+```
+After that you can simply run `burst.cmd` and that should start your wallet.
+
+You can get all additional commands available by running `burst.cmd help`
+
+#### Unix-like systems
+
+Please install Java 8 (JRE 1.8) manually and run it by using burst.sh
+You can get further information calling `burst.sh help`
+
+Please note: Firebird (embedded) needs some more work on macOS at the moment.
+All other supported databases should work as expected.
+
+A good HowTo for running the wallet on a mac can be found here
+https://www.reddit.com/r/burstcoin/comments/7lrdc1/guide_to_getting_the_poc_wallet_running_on_a_mac/
+
+
+##### Configure and Initialize MariaDB
+
+The Debian and Ubuntu packages provide an automatic configuration of
+your local mariadb server. If you can't use the packages, you have to
+initialize your database with these statements:
+
+```
+echo "CREATE DATABASE burstwallet; 
+      CREATE USER 'burstwallet'@'localhost' IDENTIFIED BY 'yourpassword';
+      GRANT ALL PRIVILEGES ON burstwallet.* TO 'burstwallet'@'localhost';" | mysql -uroot
+mysql -uroot burstwallet < init-mysql.sql
+```
+
+##### Configure your Wallet
+
+Now you need to add the following stuff to your conf/brs.properties:
+
+```
+brs.dbUrl=jdbc:mariadb://localhost:3306/burstwallet
+brs.dbUsername=burstwallet
+brs.dbPassword=yourpassword
+```
 
 ## Striking Features
 
-- Proof of Capacity - ASIC Proof / Energy efficient mining
+- Proof of Capacity - ASIC proof / Energy efficient mining
 - Fast sync. with multithread CPU or OpenCL/GPU (optional)
-- "Turing complete" smart contracts, via Automated Transactions (AT) https://ciyam.org/at/at.html
-- Decentralized Crowdfunding and Lottery via AT
+- Even faster "Quicksync" (load/store DB dumps)
+- Turing-complete smart contracts, via Automated Transactions (AT) https://ciyam.org/at/at.html
 - Asset Exchange and Digital Goods Store
 - Advanced transactions: Escrow and Subscription
 - Encrypted Messaging
+- No ICO
+- No Premine
 
 ## Specification
 
-- NXT based
-- Proof of Stake Removed
-- Proof of Capacity implemented
-- No IPO
-- No Premine
 - 4 minute block time
-- 2,158,812,800 coins total
+- 2,158,812,800 coins total (see https://burstwiki.org/wiki/Block_Reward)
 - Block reward starts at 10,000/block
 - Block Reward Decreases at 5% each month
 
 ## Version History
 
-- 2017/07/25 New version release Burst 1.2.9
-- 2017/02/19 New version release Burst 1.2.8
-- 2016/11/16 New version release Burst 1.2.7
-- 2016/07/27 New version release Burst 1.2.6
-- 2016/07/19 New version release Burst 1.2.5
-- 2016/06/07 New version release Burst 1.2.4            
-- 2016/01/11 Community takeover
-- 2015/04/20 New version release Burst 1.2.3
-- 2015/02/05 New version release Burst 1.2.2
-- 2015/01/20 New version release Burst 1.2.1
-- 2014/12/22 New version release Burst 1.2.0
-- 2014/11/04 New version release 1.1.5
-- 2014/10/18 New version release 1.1.4
-- 2014/10/04 Escrow transactions enabled
-- 2014/09/27 New version release 1.1.3
-- 2014/09/14 New version release 1.1.2
-- 2014/09/13 Stuck transactions statement
-- 2014/09/13 New version release 1.1.1
-- 2014/09/09 New version release 1.1.0
-- 2014/08/31 V2 mining pool now up
-- 2014/08/27 New version release 1.0.3
-- 2014/08/20 First pool (v1) now up
-- 2014/08/17 New version release 1.0.2
-- 2014/08/16 Statement regarding the difficulty adjustment
-- 2014/08/11 Statement regarding The pool situation
+For a general overview of Burst history see https://burstwiki.org/wiki/History_of_Burst
+
+```
+????-??-?? 1.9.1   Burst namespace; revamped configuration; migrated plain SQL to JOOQ
+2017-10-28 1.3.6cg multi-DB support: added Firebird, re-added H2; support for quick binary dump and load
+2017-09-04 1.3.4cg improved database deployment; bugfix: utf8 encoding
+2017-08-11 1.3.2cg 1st official PoCC release: MariaDB backend based on 1.2.9
+```
+For a detailed version history of wallets up to 1.2.9 see https://github.com/burst-team/burstcoin/releases
 
 ## Build
 
-Burstcoin can be build using maven or the compile scripts within this repository.
+Burstcoin can be build from source using maven or - preferably - via
+the provided `burst.sh compile` script within this repository.
+
+## Credits
+
+Numerous people have contributed to make this software what it is
+today. The Nxt-developers before Burst was forked off from the Nxt
+code base, the initial - yet anonymous - creator of burstcoin who did
+carve out PoS and instantiate PoC and also many small contributors who
+helped out with small fixes, typos, translations etc. In case we
+forgot to mention someone, please do not hesitate to bring this to our
+attention. Past contributions that have been removed from the code
+base are not mentioned, however. In alphabetical order:
+
+@4nt1g0
+* helping with JOOQ migration
+
+@ac0v
+* initial replacement of the H2 wallet against mariaDB in the CG-lineage of the wallet
+* introduction of FirebirdDB to the list of supported DB backends, bugfixing, debugging
+* streamlining helper scripts (invocation, compilation)
+* work on macOS port, testing and release management
+* JOOQ migration
+
+@BraindeadOne
+* providing a DB abstraction layer to allow for multiple DB backends
+* implementing a load/dump mechanism for faster sync (called Quicksync)
+* added SQL metrics to the code to be able to spot DB performance problems
+* CPU core limit patch, so the wallet can be assigned only part of your resources
+
+@chrulri improved wallet behavior when running under https
+
+@daWallet did many bugfixes and stabilization improvements
+
+@dcct
+* support for parallel blockchain downloads
+* various bugfixes and lib updates
+
+@de-luxe took care of the releases between 1.2.5 and 1.2.9
+
+@fusecavator
+* initial OpenCL code (GPU acceleration support)
+* critical fixes to the wallet spam-attack vulnerability
+
+@LithMage provided fixes and enhancements to the UI
+
+@Quibus DownloadCache
+
+@rico666
+* moved the wallet from Nxt to BRS/Burst namespace
+* improvements and fixes to the documentation - revival of javadoc references
+* general code refactoring and styleguide unification (Google JAVA Styleguide)
+* removed obsolete/unused code - tens of thousands of LOCs
+* fixes and enhancements to the UI
+
+Other contributors
+
+Accepted pull requests improving the wallet quality in several areas
+were made by @Doncode, @naiduv
+
+
 
 ## Links
 
 For further information, please visit the following pages.
 
-### Home
-https://web.burst-team.us
+Wiki: https://burstwiki.org (lots of other links)
 
-### Block-Explorer
-http://burstcoin.biz
+Info: https://www.burst-coin.org/
 
-### Forum
-https://forums.burst-team.us
+Explorer: https://explore.burst.cryptoguru.org
+
+Forum1: https://burstforum.net/
+
+Forum2: https://forums.getburst.net/
+
 
 ### Bitcointalk
+
 https://bitcointalk.org/index.php?topic=1541310 *(New unmoderated)*
 
 https://bitcointalk.org/index.php?topic=1323657 *(Alternative moderated)*
@@ -77,11 +212,8 @@ https://bitcointalk.org/index.php?topic=1323657 *(Alternative moderated)*
 https://bitcointalk.org/index.php?topic=731923 *(Original unmoderated)*
 
 ### Related repositories
-https://github.com/BurstProject *Original/Forked Burstcoin, ATDebugger, ATAssembler, POCMiner (Proof of concept plotter/miner), etc.*
 
-https://github.com/IceBurst/Burst *Burst for Android*
-
-https://github.com/dawallet/ *Burstcoin Win Client, Android App*
+https://github.com/rico666/cg_obup *CryptoGuru Optimized BURSTcoin Unix Plotter (Linux)*
 
 https://github.com/Blagodarenko  *Blago's XPlotter, Windows Miner, PlotsChecker, etc.*
 
@@ -93,15 +225,13 @@ https://github.com/BurstTools/BurstSoftware *Windows Plot Generator for SEE4/AVX
 
 https://github.com/bhamon *gpuPlotGenerator, BurstMine (graphical plotter/miner)*
 
-https://github.com/kartojal *GUI for Dcct Tools, GUI for gpuPlotGenerator (linux)*
+https://github.com/kartojal *GUI for Dcct Tools, GUI for gpuPlotGenerator (Linux)*
 
 https://github.com/Kurairaito *Burst Plot Generator by Kurairaito*
 
-https://github.com/Mirkic7 *Improved Linux Burst Plotter / optimizer / miner (linux)*
-
-https://github.com/uraymeiviar *C Miner, Pool, Block Explorer, Plot Composer (linux)*
+https://github.com/uraymeiviar *C Miner, Pool, Block Explorer, Plot Composer (Linux)*
 
 https://github.com/mrpsion/burst-mining-system *Web interface for Plotting and Mining*
 
 ### Additional Software
-https://forums.burst-team.us/category/9/burst-software
+https://burstforum.net/category/9/burst-software
